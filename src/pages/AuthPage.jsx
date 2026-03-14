@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { Button, Input, Alert, Ic, I } from "../components/UI";
+import { Button, Input, AlertBanner, Ic, I } from "../components/UI";
 
 export default function AuthPage() {
   const [mode,     setMode]     = useState("login");
@@ -99,7 +99,7 @@ export default function AuthPage() {
             {mode === "login" ? "Sign in to your trading account" : "Start with $100,000 virtual cash"}
           </p>
 
-          <Alert type="error" message={error} onClose={() => setError("")} />
+          <AlertBanner type="error" message={error} onClose={() => setError("")} />
 
           <form onSubmit={submit} className="flex flex-col gap-4 mt-4">
             {mode === "register" && (

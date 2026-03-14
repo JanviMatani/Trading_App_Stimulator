@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "../components/Layout";
-import { Card, CardHead, Sparkline, Spinner, Button, Ic, I, fmt$, genSparkline } from "../components/UI";
+import { Card, Sparkline, Spinner, Button, Ic, I, fmt$, genSparkline, useT, Badge } from "../components/UI";
+import { useWatchlist } from "../context/WatchlistContext";
 import api from "../utils/api";
 
 export default function StocksPage() {
@@ -9,20 +10,25 @@ export default function StocksPage() {
   const [loading, setLoading] = useState(true);
   const [search,  setSearch]  = useState("");
   const [sort,    setSort]    = useState("symbol");
-  const [sparks]  = useState({});
-  const navigate  = useNavigate();
+  const [sparks]              = useState({});
+  const navigate              = useNavigate();
+  const { toggle, has }       = useWatchlist();
+  const t                     = useT();
 
   const fetchStocks = async () => {
     setLoading(true);
     try {
       const { data } = await api.get("/stocks");
-      const enriched = data.stocks.map((s) => ({
+      const enriched = (data.stocks || []).map((s) => ({
         ...s,
         spark: sparks[s.symbol] || (sparks[s.symbol] = genSparkline(s.price)),
       }));
       setStocks(enriched);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchStocks(); }, []);
@@ -30,7 +36,8 @@ export default function StocksPage() {
   const filtered = stocks
     .filter((s) =>
       s.symbol.includes(search.toUpperCase()) ||
-      s.name?.toLowerCase().includes(search.toLowerCase()))
+      s.name?.toLowerCase().includes(search.toLowerCase())
+    )
     .sort((a, b) => {
       if (sort === "price")  return b.price - a.price;
       if (sort === "change") return b.changePct - a.changePct;
@@ -43,118 +50,202 @@ export default function StocksPage() {
   return (
     <Layout title="Live Stocks">
       <div className="flex flex-col gap-5">
-        {/* Gainers / Losers */}
+
+        {/* Top Gainers / Losers */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[{ label: "▲ Top Gainers", list: gainers, up: true },
-            { label: "▼ Top Losers",  list: losers,  up: false }].map(({ label, list, up }) => (
+          {[
+            { label: "Top Gainers", list: gainers, up: true  },
+            { label: "Top Losers",  list: losers,  up: false },
+          ].map(({ label, list, up }) => (
             <Card key={label} className="p-4">
-              <p className={`text-xs font-black tracking-widest uppercase mb-3 ${up ? "text-emerald-400" : "text-red-400"}`}>{label}</p>
-              {list.map((s, i) => (
-                <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-600/30 last:border-0">
-                  <span className="text-white text-xs font-bold">{s.symbol}</span>
-                  <span className="text-slate-400 text-xs">${fmt$(s.price)}</span>
-                  <span className={`text-xs font-bold ${up ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-1.5
+                ${up ? "text-emerald-400" : "text-red-400"}`}>
+                <span>{up ? "▲" : "▼"}</span>{label}
+              </p>
+              {list.length === 0 ? (
+                <p className={`${t.muted} text-xs py-2`}>{loading ? "Loading…" : "No data"}</p>
+              ) : list.map((s, i) => (
+                <div key={i}
+                  onClick={() => navigate(`/stocks/${s.symbol}`)}
+                  className={`flex justify-between items-center py-2.5 border-b last:border-0
+                    ${t.divider} cursor-pointer rounded-lg px-2 -mx-2 ${t.hover} transition-colors`}>
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                      <span className="text-amber-500 font-bold text-xs">{s.symbol[0]}</span>
+                    </div>
+                    <span className={`${t.text} text-sm font-bold`}>{s.symbol}</span>
+                  </div>
+                  <span className={`${t.muted} text-xs font-medium`}>${fmt$(s.price)}</span>
+                  <Badge color={up ? "green" : "red"}>
                     {s.changePct > 0 ? "+" : ""}{Number(s.changePct).toFixed(2)}%
-                  </span>
+                  </Badge>
                 </div>
               ))}
-              {list.length === 0 && <p className="text-slate-500 text-xs">Loading…</p>}
             </Card>
           ))}
         </div>
 
-        {/* Search + sort */}
+        {/* Search + Sort + Refresh */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 bg-slate-700 border border-slate-500/50 px-3 py-2 flex-1 min-w-48">
-            <Ic d={I.search} size={14} stroke="#94a3b8" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
+          <div className={`flex items-center gap-2 border ${t.border} rounded-xl px-3 py-2.5 flex-1 min-w-48
+            ${t.dark ? "bg-[#1e2a3a]" : "bg-white"}`}>
+            <Ic d={I.search} size={15} stroke="#94a3b8" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search symbol or company…"
-              className="bg-transparent text-white text-xs placeholder-slate-500 outline-none w-full" />
+              className={`bg-transparent ${t.text} text-sm placeholder-slate-500 outline-none w-full`}
+            />
           </div>
-          <div className="flex gap-2">
-            {[["symbol","A-Z"], ["price","Price"], ["change","Change"]].map(([val, label]) => (
+          <div className="flex gap-1.5">
+            {[["symbol","A–Z"],["price","Price"],["change","Change"]].map(([val, label]) => (
               <button key={val} onClick={() => setSort(val)}
-                className={`px-3 py-2 text-xs font-bold tracking-widest uppercase transition-colors
-                  ${sort === val ? "bg-amber-500 text-slate-900" : "bg-slate-700 text-slate-400 hover:text-white border border-slate-500/40"}`}>
+                className={`px-3 py-2 text-xs font-semibold rounded-xl transition-colors
+                  ${sort === val
+                    ? "bg-amber-500 text-slate-900"
+                    : `${t.muted} ${t.hover} border ${t.border}`}`}>
                 {label}
               </button>
             ))}
           </div>
-          <Button onClick={fetchStocks} variant="ghost" loading={loading}>
-            <Ic d={I.refresh} size={13} /> Refresh
+          <Button onClick={fetchStocks} variant={t.dark ? "ghost" : "light"} size="sm" loading={loading}>
+            <Ic d={I.refresh} size={14} /> Refresh
           </Button>
         </div>
 
-        {/* Table */}
-        <Card>
-          <CardHead icon={<Ic d={I.stocks} size={16} />} title="All Stocks"
-            badge={!loading ? "Live" : undefined}
-            action={!loading && (
-              <span className="text-emerald-400 text-xs flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Alpha Vantage
-              </span>
-            )} />
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-4">
-              <Spinner size="lg" />
-              <p className="text-slate-400 text-sm">Fetching live prices from Alpha Vantage…</p>
-              <p className="text-slate-500 text-xs">Free tier fetches sequentially (~5s per stock)</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-500/40">
-                    {["Symbol","Company","Price","Change","Change %","Volume","High","Low","Trend","Action"].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left text-slate-400 font-bold tracking-widest uppercase whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-600/30">
-                  {filtered.map((s, i) => {
-                    const up = s.change >= 0;
-                    return (
-                      <tr key={i} className="hover:bg-slate-600/20 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 bg-slate-600 flex items-center justify-center">
-                              <span className="text-amber-400 font-black text-xs">{s.symbol[0]}</span>
-                            </div>
-                            <span className="text-white font-bold">{s.symbol}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-300 max-w-xs truncate">{s.name}</td>
-                        <td className="px-4 py-3 text-white font-bold">${fmt$(s.price)}</td>
-                        <td className={`px-4 py-3 font-semibold ${up ? "text-emerald-400" : "text-red-400"}`}>
-                          {up ? "+" : ""}{fmt$(s.change)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 font-bold ${up ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
-                            {up ? "+" : ""}{Number(s.changePct).toFixed(2)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-400">{s.volume?.toLocaleString?.() ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-300">${fmt$(s.high)}</td>
-                        <td className="px-4 py-3 text-slate-300">${fmt$(s.low)}</td>
-                        <td className="px-4 py-3">
-                          <Sparkline data={s.spark || []} up={up} w={70} h={26} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => navigate("/trade", { state: { symbol: s.symbol, price: s.price, name: s.name } })}
-                            className="px-2.5 py-1 bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-slate-900 text-xs font-black tracking-widest uppercase transition-all">
-                            Trade
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+        {/* Live indicator */}
+        {!loading && (
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className={`${t.muted} text-xs font-medium`}>
+              Live prices · Alpha Vantage · {filtered.length} stocks
+            </span>
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-32 gap-4">
+            <Spinner size="lg" />
+            <p className={`${t.muted} text-sm`}>Fetching live prices…</p>
+          </div>
+        ) : (
+          /* Stock Cards Grid */
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filtered.map((s) => {
+              const up  = (s.change || 0) >= 0;
+              const inWl = has(s.symbol);
+              return (
+                <div key={s.symbol}
+                  onClick={() => navigate(`/stocks/${s.symbol}`)}
+                  className={`${t.card} border ${t.border} rounded-2xl p-5 cursor-pointer
+                    transition-all duration-200 hover:scale-[1.02] hover:shadow-xl
+                    ${t.dark
+                      ? "hover:border-slate-500 hover:shadow-black/30"
+                      : "hover:border-slate-300 hover:shadow-slate-200"}`}>
+
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                        <span className="text-amber-500 font-bold text-lg">{s.symbol[0]}</span>
+                      </div>
+                      <div>
+                        <p className={`${t.text} font-bold text-base`}>{s.symbol}</p>
+                        <p className={`${t.muted} text-xs truncate max-w-[100px]`}>{s.name}</p>
+                      </div>
+                    </div>
+                    {/* Watchlist star */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggle(s.symbol); }}
+                      className={`p-1.5 rounded-lg transition-all
+                        ${inWl ? "text-amber-500 bg-amber-500/10" : `${t.muted} ${t.hover}`}`}>
+                      <Ic d={I.star} size={15}
+                        fill={inWl ? "#f59e0b" : "none"}
+                        stroke={inWl ? "#f59e0b" : "currentColor"}
+                        sw={inWl ? 2 : 1.5} />
+                    </button>
+                  </div>
+
+                  {/* Price + Change */}
+                  <div className="flex items-end justify-between mb-4">
+                    <div>
+                      <p className={`${t.text} font-bold text-2xl`}>${fmt$(s.price)}</p>
+                      <p className={`text-sm font-semibold mt-0.5
+                        ${up ? "text-emerald-400" : "text-red-400"}`}>
+                        {up ? "▲" : "▼"} {up ? "+" : ""}{fmt$(s.change)}
+                      </p>
+                    </div>
+                    <div className="text-right flex flex-col items-end gap-1">
+                      <Badge color={up ? "green" : "red"}>
+                        {up ? "+" : ""}{Number(s.changePct).toFixed(2)}%
+                      </Badge>
+                      <Sparkline data={s.spark || []} up={up} w={70} h={32} />
+                    </div>
+                  </div>
+
+                  {/* High / Low / Open */}
+                  <div className={`grid grid-cols-3 gap-1 text-xs rounded-xl p-2.5 mb-4
+                    ${t.dark ? "bg-white/5" : "bg-slate-50 border border-slate-100"}`}>
+                    <div className="text-center">
+                      <p className={`${t.muted} mb-0.5`}>High</p>
+                      <p className="text-emerald-400 font-semibold">${fmt$(s.high)}</p>
+                    </div>
+                    <div className={`text-center border-x ${t.divider}`}>
+                      <p className={`${t.muted} mb-0.5`}>Low</p>
+                      <p className="text-red-400 font-semibold">${fmt$(s.low)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={`${t.muted} mb-0.5`}>Open</p>
+                      <p className={`${t.text} font-semibold`}>${fmt$(s.open)}</p>
+                    </div>
+                  </div>
+
+                  {/* Volume */}
+                  <p className={`${t.muted} text-xs mb-4`}>
+                    Vol:{" "}
+                    <span className={`${t.text} font-medium`}>
+                      {s.volume?.toLocaleString?.() ?? "—"}
+                    </span>
+                  </p>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate("/trade", { state: { symbol: s.symbol, tab: "BUY" } });
+                      }}
+                      className="flex-1 py-2 text-xs font-bold rounded-xl
+                        bg-emerald-500/15 text-emerald-500
+                        hover:bg-emerald-500 hover:text-white transition-all duration-150">
+                      ▲ Buy
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate("/trade", { state: { symbol: s.symbol, tab: "SELL" } });
+                      }}
+                      className="flex-1 py-2 text-xs font-bold rounded-xl
+                        bg-red-500/15 text-red-400
+                        hover:bg-red-500 hover:text-white transition-all duration-150">
+                      ▼ Sell
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/stocks/${s.symbol}`);
+                      }}
+                      className={`px-3 py-2 text-xs font-bold rounded-xl border
+                        transition-all duration-150 ${t.border} ${t.muted} ${t.hover}`}>
+                      <Ic d={I.eye} size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </Layout>
   );

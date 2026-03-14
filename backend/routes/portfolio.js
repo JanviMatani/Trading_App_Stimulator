@@ -1,22 +1,12 @@
-const express = require("express");
-const router  = express.Router();
-const axios   = require("axios");
-const Holding = require("../models/Holding");
-const Trade   = require("../models/Trade");
-const { protect } = require("../middleware/auth");
+const express  = require("express");
+const router   = express.Router();
+const Holding  = require("../models/Holding");
+const User     = require("../models/User");
+const { protect }       = require("../middleware/auth");
+const { getLivePrice }  = require("../utils/priceService");
 
 const AV_KEY = process.env.ALPHA_VANTAGE_KEY;
 
-async function getLivePrice(symbol) {
-  try {
-    const { data } = await axios.get("https://www.alphavantage.co/query", {
-      params: { function: "GLOBAL_QUOTE", symbol, apikey: AV_KEY },
-      timeout: 6000,
-    });
-    const q = data["Global Quote"];
-    return q?.["05. price"] ? parseFloat(q["05. price"]) : null;
-  } catch { return null; }
-}
 
 // GET /api/portfolio  — holdings with live prices
 router.get("/", protect, async (req, res) => {

@@ -1,25 +1,39 @@
-const express = require("express");
-const router  = express.Router();
-const mongoose= require("mongoose");
-const axios   = require("axios");
-const Trade   = require("../models/Trade");
-const Holding = require("../models/Holding");
-const User    = require("../models/User");
-const { protect } = require("../middleware/auth");
+const express  = require("express");
+const router   = express.Router();
+const mongoose = require("mongoose");
+const Trade    = require("../models/Trade");
+const Holding  = require("../models/Holding");
+const User     = require("../models/User");
+const { protect }       = require("../middleware/auth");
+const { getLivePrice }  = require("../utils/priceService"); 
 
-const AV_KEY  = process.env.ALPHA_VANTAGE_KEY;
 
-async function getLivePrice(symbol) {
-  const { data } = await axios.get("https://www.alphavantage.co/query", {
-    params: { function: "GLOBAL_QUOTE", symbol, apikey: AV_KEY },
-    timeout: 8000,
-  });
-  const q = data["Global Quote"];
-  if (!q || !q["05. price"]) throw new Error("Could not fetch live price");
-  return parseFloat(q["05. price"]);
+// const AV_KEY = process.env.ALPHA_VANTAGE_KEY;
+
+// ─── Mock prices fallback ─────────────────────────────────────────
+const MOCK_PRICES = {
+  AAPL:    189.30,
+  MSFT:    415.20,
+  GOOGL:   175.80,
+  AMZN:    198.50,
+  NVDA:    875.40,
+  META:    527.30,
+  TSLA:    172.60,
+  JPM:     234.80,
+  V:       312.40,
+  "BRK.B": 452.30,
+};
+
+function getMockPrice(symbol) {
+  const base = MOCK_PRICES[symbol];
+  if (!base) return null;
+  // small random variation so price feels live
+  const variation = (Math.random() - 0.48) * base * 0.008;
+  return parseFloat((base + variation).toFixed(2));
 }
 
-// POST /api/trades/buy
+
+// ─── POST /api/trades/buy ─────────────────────────────────────────
 router.post("/buy", protect, async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -28,11 +42,9 @@ router.post("/buy", protect, async (req, res) => {
     if (!symbol || !quantity || quantity < 1)
       return res.status(400).json({ success: false, message: "Invalid symbol or quantity" });
 
-    // 1. Get live price
     const price = await getLivePrice(symbol.toUpperCase());
     const total = parseFloat((price * quantity).toFixed(2));
 
-    // 2. Check user has enough cash
     const user = await User.findById(req.user._id).session(session);
     if (user.virtualCash < total) {
       await session.abortTransaction();
@@ -45,11 +57,9 @@ router.post("/buy", protect, async (req, res) => {
     const cashBefore = user.virtualCash;
     const cashAfter  = parseFloat((cashBefore - total).toFixed(2));
 
-    // 3. Deduct cash
     user.virtualCash = cashAfter;
     await user.save({ session });
 
-    // 4. Update/create holding (weighted avg)
     const existing = await Holding.findOne({ user: req.user._id, symbol: symbol.toUpperCase() }).session(session);
     if (existing) {
       const newQty      = existing.quantity + quantity;
@@ -60,21 +70,20 @@ router.post("/buy", protect, async (req, res) => {
       await existing.save({ session });
     } else {
       await Holding.create([{
-        user: req.user._id,
-        symbol: symbol.toUpperCase(),
-        companyName: companyName || symbol,
+        user:          req.user._id,
+        symbol:        symbol.toUpperCase(),
+        companyName:   companyName || symbol,
         quantity,
-        avgBuyPrice: price,
+        avgBuyPrice:   price,
         totalInvested: total,
       }], { session });
     }
 
-    // 5. Record trade
     const trade = await Trade.create([{
-      user: req.user._id,
-      symbol: symbol.toUpperCase(),
+      user:        req.user._id,
+      symbol:      symbol.toUpperCase(),
       companyName: companyName || symbol,
-      type: "BUY",
+      type:        "BUY",
       quantity,
       price,
       total,
@@ -84,9 +93,9 @@ router.post("/buy", protect, async (req, res) => {
 
     await session.commitTransaction();
     res.status(201).json({
-      success: true,
-      message: `✅ Bought ${quantity} share(s) of ${symbol} @ $${price.toFixed(2)}`,
-      trade: trade[0],
+      success:        true,
+      message:        `Bought ${quantity} share(s) of ${symbol.toUpperCase()} @ $${price.toFixed(2)}`,
+      trade:          trade[0],
       newCashBalance: cashAfter,
     });
   } catch (err) {
@@ -97,12 +106,14 @@ router.post("/buy", protect, async (req, res) => {
   }
 });
 
-// POST /api/trades/sell
+// ─── POST /api/trades/sell ────────────────────────────────────────
 router.post("/sell", protect, async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { symbol, quantity, companyName } = req.body;
+    if (!symbol || !quantity || quantity < 1)
+      return res.status(400).json({ success: false, message: "Invalid symbol or quantity" });
 
     const price = await getLivePrice(symbol.toUpperCase());
     const total = parseFloat((price * quantity).toFixed(2));
@@ -112,19 +123,19 @@ router.post("/sell", protect, async (req, res) => {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: `You only hold ${holding?.quantity || 0} shares of ${symbol}`,
+        message: `You only hold ${holding?.quantity || 0} shares of ${symbol.toUpperCase()}`,
       });
     }
 
-    const user = await User.findById(req.user._id).session(session);
+    const user       = await User.findById(req.user._id).session(session);
     const cashBefore = user.virtualCash;
     const cashAfter  = parseFloat((cashBefore + total).toFixed(2));
 
     user.virtualCash = cashAfter;
     await user.save({ session });
 
-    holding.quantity -= quantity;
-    holding.totalInvested = parseFloat((holding.avgBuyPrice * holding.quantity).toFixed(2));
+    holding.quantity      -= quantity;
+    holding.totalInvested  = parseFloat((holding.avgBuyPrice * holding.quantity).toFixed(2));
     if (holding.quantity === 0) {
       await Holding.deleteOne({ _id: holding._id }).session(session);
     } else {
@@ -132,10 +143,10 @@ router.post("/sell", protect, async (req, res) => {
     }
 
     const trade = await Trade.create([{
-      user: req.user._id,
-      symbol: symbol.toUpperCase(),
+      user:        req.user._id,
+      symbol:      symbol.toUpperCase(),
       companyName: companyName || symbol,
-      type: "SELL",
+      type:        "SELL",
       quantity,
       price,
       total,
@@ -145,9 +156,9 @@ router.post("/sell", protect, async (req, res) => {
 
     await session.commitTransaction();
     res.status(201).json({
-      success: true,
-      message: `✅ Sold ${quantity} share(s) of ${symbol} @ $${price.toFixed(2)}`,
-      trade: trade[0],
+      success:        true,
+      message:        `Sold ${quantity} share(s) of ${symbol.toUpperCase()} @ $${price.toFixed(2)}`,
+      trade:          trade[0],
       newCashBalance: cashAfter,
     });
   } catch (err) {
@@ -158,7 +169,7 @@ router.post("/sell", protect, async (req, res) => {
   }
 });
 
-// GET /api/trades  — trade history
+// ─── GET /api/trades — trade history ─────────────────────────────
 router.get("/", protect, async (req, res) => {
   try {
     const { page = 1, limit = 20, type } = req.query;
@@ -169,7 +180,13 @@ router.get("/", protect, async (req, res) => {
       .skip((page - 1) * limit)
       .limit(+limit);
     const total = await Trade.countDocuments(filter);
-    res.json({ success: true, trades, total, page: +page, pages: Math.ceil(total / limit) });
+    res.json({
+      success: true,
+      trades,
+      total,
+      page:  +page,
+      pages: Math.ceil(total / limit),
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
