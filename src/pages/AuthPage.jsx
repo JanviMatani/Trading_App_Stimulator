@@ -448,7 +448,7 @@ export default function AuthPage() {
     setLoading(true);
     try {
       if (mode === "login") {
-        await login(email, password);
+        await login(email);
       } else {
         if (!name.trim()) { setError("Name is required"); setLoading(false); return; }
         await register(name, email, password);
@@ -617,15 +617,17 @@ export default function AuthPage() {
                   style={{ background: inputBg, border: `1px solid ${inputBdr}`, color: inputClr }} />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: labelClr }}>
-                  Password
-                </label>
-                <input value={password} onChange={(e) => setPassword(e.target.value)}
-                  type="password" placeholder="••••••••"
-                  className="w-full rounded-xl text-sm px-4 py-3 outline-none transition-colors"
-                  style={{ background: inputBg, border: `1px solid ${inputBdr}`, color: inputClr }} />
-              </div>
+              {mode === "register" && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: labelClr }}>
+                    Password
+                  </label>
+                  <input value={password} onChange={(e) => setPassword(e.target.value)}
+                    type="password" placeholder="••••••••"
+                    className="w-full rounded-xl text-sm px-4 py-3 outline-none transition-colors"
+                    style={{ background: inputBg, border: `1px solid ${inputBdr}`, color: inputClr }} />
+                </div>
+              )}
 
               {error && (
                 <div className="flex items-center gap-2 rounded-xl px-4 py-3"
